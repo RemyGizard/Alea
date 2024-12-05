@@ -1,140 +1,121 @@
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Image;
-import java.awt.Toolkit;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
-import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.InetAddress;
-import java.net.MulticastSocket;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Scanner;
+import java.io.*;
+import java.net.*;
+import java.util.*;
 
-import javax.swing.*;
-
-
-public class Serveur implements MouseListener {
+public class Serveur {
 	
-	public static void main(String[] args) {
-		
-		JFrame window = new javax.swing.JFrame("Serveur");;
-		ImageIcon board = new ImageIcon("images/board.png");
-		Image icone = Toolkit.getDefaultToolkit().getImage("images/logo.png");
-		
-		Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-		int hauteur = (int) screenSize.getHeight();
-		int largeur = (int) screenSize.getWidth();
-			
-		window.setSize(new Dimension(800,800)); //(int)largeur*2/3,(int)hauteur*2/3));
-		window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		window.add(new JLabel(board));
-		window.setVisible(true);
-		window.setLocationRelativeTo(null);
-		window.setIconImage(icone);
-		window.pack();
-					
-		final ServerSocket serveurSocket ;
-		final Socket clientSocket ;
-		final BufferedReader in;
-		final PrintWriter out;
-		final Scanner sc = new Scanner(System.in);
-		
-		try {
-			
-			serveurSocket = new ServerSocket(6666);
-			clientSocket = serveurSocket.accept();
-			MulticastSocket socket = new MulticastSocket(4446);
-			
-			out = new PrintWriter(clientSocket.getOutputStream());
-			in = new BufferedReader (new InputStreamReader (clientSocket.getInputStream()));
-			
-			Thread envoi = new Thread(new Runnable() {
-				
-				String msg;
-				
-				@Override
-				public void run() {
-					while (true) {
-						msg = sc.nextLine();
-						out.println(msg);
-						out.flush();
-					}
-				}
-			});
-			
-			envoi.start();
-			
-			Thread recevoir = new Thread(new Runnable() {
-				String msg ;
-				@Override
-				public void run() {
-					try {
-							msg = in.readLine();
-							
-							// Tant que le client est connecté
-							
-							while (msg!=null) {
-								System.out.println("Client: "+msg);
-								out.flush();
-								msg = in.readLine();
-								if (msg.equals("bye")) { 
-									out.close();
-									clientSocket.close();
-								}
-							}
-							
-							// Sortir de la boucle si le client a déconecté
-							
-							System.out.println("Client déconecté");
-							
-							// Fermer le flux et la session socket
-							
-							out.close();
-							clientSocket.close();
-							serveurSocket.close();
-					} catch (IOException e) {e.printStackTrace();}
-				}
-			});
-			
-			recevoir.start();
-			
-		} catch (IOException e) {e.printStackTrace();}
-	}
+	// Initialization des variables importantes
+	
+    private static final int PORT = 3214;
+    private static Map<String, PrintWriter> clients = new HashMap<>();
 
-	@Override
-	public void mouseClicked(MouseEvent e) {
-		
-	}
+    public static void main(String[] args) {
+        System.out.println("Le serveur est prêt à recevoir des connexions...");
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) { 						// Creation d'un serveur socket qui permet d'accepter les clients
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                new ClientHandler(clientSocket).start();
+            }
+        } catch (IOException e) {e.printStackTrace();}
+    }
 
-	@Override
-	public void mousePressed(MouseEvent e) {
-		// TODO Auto-generated method stub
-		
-	}
+    private static class ClientHandler extends Thread {
+        private Socket socket;
+        private PrintWriter out;
+        private BufferedReader in;
+        private String username;
 
-	@Override
-	public void mouseReleased(MouseEvent e) {
-		// TODO Auto-generated method stub
-		
-	}
+        public ClientHandler(Socket socket) {this.socket = socket;} 							// Construction d'un client qui s'est connecté
 
-	@Override
-	public void mouseEntered(MouseEvent e) {
-		// TODO Auto-generated method stub
-		
-	}
+        public void run() {
+        	
+            try {
+            	
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));		// Reception des informations du client		
+                out = new PrintWriter(socket.getOutputStream(), true);							// Envoyeur des informations vers le client
 
-	@Override
-	public void mouseExited(MouseEvent e) {
-		// TODO Auto-generated method stub
-		
-	}
+                /**
+                 * Demande de pseudo unique :
+                 * - username : Lecture du nom d'utilisateur
+                 * 		- Si le nom d'utilisateur est nul, on recommence la boucle et on redemande le nom d'utilisateur.
+                 * 		- Sinon on 
+                 */
+
+                while (true) {
+                    out.println("Veuillez entrer votre pseudo : ");
+                    username = in.readLine();													// Lecture du nom d'utilisateur
+                    if (username == null || username.trim().isEmpty()) continue;				// Si le nom d'utilisateur est vide, on recommence la boucle et on redemande la saisie
+                    // Ajout d'un client dans le dictionnaire des clients
+                    synchronized (clients) {
+                        if (!clients.containsKey(username)) {
+                            clients.put(username, out);
+                            out.println("Bienvenue " + username + " !");
+                            System.out.println("Utilisateur connecté : " + username);
+                            break;
+                        } else {out.println("Ce nom d'utilisateur est déjà pris. Essayez un autre.");}
+                    }
+                }
+
+                // Lire les messages et les envoyer au bon destinataire
+
+                String message;
+                while ((message = in.readLine()) != null) {
+                	
+                	/**
+                	 * Verifier si le message est un message privé.
+                	 * Si il contient ":" , donc on le sépare par deux Strings:
+                	 * - Le premier est le pseudo "targetUser" qu'on vise a lui envoyer un message
+                	 * - Le deuxieme est le message "privateMessage" a envoyer
+                	 */
+                	
+                    if (message.contains(":")) {
+                        String[] parts = message.split(":", 2);
+                        
+                        /**
+                         * Verifier si le message suit le bon format:
+                         * S'il sagit d'un message separe par un seul ":" , On peut effectuer l'envoi en prive.
+                         * Sinon on renvoie une erreure qui demande le bon format.
+                         */
+                        
+                        if (parts.length == 2) {
+                            String targetUser = parts[0].trim();
+                            String privateMessage = parts[1].trim();
+
+                            synchronized (clients) {
+                            	
+                            	/**
+                            	 * Recherche de l'utilisateur a parler en prive:
+                            	 * - targetWriter : le client avec le pseudo targetUser
+                            	 * Si on trouve le client, on lui envoi le message
+                            	 * Sinon on renvoie un message d'erreure qui indique que l'utilisateur est introuvable.
+                            	 */
+                            	
+                                PrintWriter targetWriter = clients.get(targetUser);
+                                if (targetWriter != null) {
+                                    targetWriter.println(username + " (privé) : " + privateMessage);
+                                } else {
+                                    out.println("Utilisateur " + targetUser + " introuvable.");
+                                }
+                            }
+                            
+                        // Demande du bon format
+                        } else {out.println("Format de message invalide. Utilisez : DESTINATAIRE:MESSAGE");}
+                    } else {
+                        // Diffuser à tout le monde si pas de destinataire specifique
+                        synchronized (clients) {for (PrintWriter writer : clients.values()) {writer.println(username + " : " + message);}}
+                    }
+                }
+
+            } catch (IOException e) {System.out.println("Connexion perdue avec " + username);
+
+            } finally {
+            	
+                // Nettoyage après déconnexion
+                try {socket.close();} catch (IOException e) {e.printStackTrace();}
+                synchronized (clients) {clients.remove(username);}
+                System.out.println("Utilisateur déconnecté : " + username);
+                
+            }
+        }
+    }
 }
