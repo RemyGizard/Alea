@@ -126,7 +126,7 @@ public class Fenetre_discution extends JFrame {
 	private void sendMessage() {
 		String message = messageField.getText();
 		if (!message.isEmpty()) {
-			addMessage(message); // Ajouter le message
+			addMessage(message,true,true); // Ajouter le message
 			Ecriture_append(message);
 			messageField.setText(""); // Réinitialiser le champ de texte
 			messagePanel.revalidate();
@@ -143,11 +143,19 @@ public class Fenetre_discution extends JFrame {
 	}
 
 	// Méthode pour ajouter un message au bas du panneau
-	public  void addMessage(String message) {
-		chaine_Text.add(message);
+	public  void addMessage(String message,boolean envoie,boolean color) {
+		if( envoie ==true) {
+			chaine_Text.add(message);
+		}
+		else {
 		JLabel messageLabel = new JLabel(message);
 		messageLabel.setOpaque(true); // Nécessaire pour changer la couleur de fond
-		messageLabel.setBackground(generateRandomColor());
+		if (color) {
+			messageLabel.setBackground(new Color(120, 120,140));
+		}
+		else {
+			messageLabel.setBackground(new Color(80, 80,90));
+		}
 		messageLabel.setForeground(Color.WHITE); // Changer la couleur du texte
 
 		// Faire en sorte que le JLabel occupe toute la largeur du panneau de messages
@@ -160,6 +168,8 @@ public class Fenetre_discution extends JFrame {
 		// Rafraîchir l'affichage
 		messagePanel.revalidate();
 		messagePanel.repaint();
+		}
+		
 	}
 
 	// Méthode pour ajouter un message "Bonjour" en haut
@@ -223,21 +233,13 @@ public class Fenetre_discution extends JFrame {
 
 	// Méthode pour générer une couleur de fond aléatoire
 	private Color generateRandomColor() {
-		int r = (int) (Math.random() * 256);
+		int r = (int) (120);
 		int g = (int) (Math.random() * 256);
 		int b = (int) (Math.random() * 256);
 		return new Color(r, g, b);
 	}
 
-	public static void main(String[] args) {
-		// Exécuter l'application dans le thread de l'interface graphique
-		SwingUtilities.invokeLater(new Runnable() {
-			@Override
-			public void run() {
-				new Fenetre_discution();
-			}
-		});
-	}
+	
 
 	private void loadMessagesFromFile() {
 		loadedMessages = new ArrayList<>();
