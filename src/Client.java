@@ -1,131 +1,164 @@
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.InetAddress;
-import java.net.ServerSocket;
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.*;
 import java.net.Socket;
-import java.net.UnknownHostException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Scanner;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import javax.swing.SwingUtilities;
-
 public class Client {
-	public static Fenetre_discution Fenetre ;
-	public static ArrayList<String> chaine_Text = new ArrayList<>();
+    private SecretKey secretKey = null; // Variable d'instance partagée entre threads
+    public static Fenetre_discution Fenetre;
+    public static ArrayList<String> chaine_Text = new ArrayList<>();
+    private static final int port = 3346;
+    private boolean envoie_valide = false;
 
-	public static void main(String[] args) throws Exception {
-		SecretKey secretKey = generateAESKey();
-		final Socket clientSocket ;
-		final BufferedReader in;
-		final PrintWriter out;
-		final Scanner sc = new Scanner(System.in);
-		
-		
-		 
-		try {
-			Fenetre = new Fenetre_discution(chaine_Text); 
-			Fenetre.addMessage("Conection au serveur");
-			
-			clientSocket = new Socket("127.0.0.69",4444);
-			
-			out = new PrintWriter(clientSocket.getOutputStream());
-			in = new BufferedReader (new InputStreamReader (clientSocket.getInputStream()));
-			Thread envoi= new Thread(new Runnable() {
-				String msg;
-				@Override
-				public void run() {
-					while(true) {
-						msg = getNextMessage();;
-						if (msg.length()>0) {
-							System.out.println("Envoi du message au serveur : " + msg);
-							try {
-								out.println( encrypt(msg,secretKey));
-							} catch (Exception e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}
-							out.flush();
-							System.out.println("Message envoyé avec succès.");
-						}
-						
-					}
-				}
-			});
-			
-			envoi.start();
-			
-			Thread recevoir= new Thread(new Runnable() {
-				String msg ;
-				@Override
-				public void run() {
-					try {
+    public static void main(String[] args) {
+        startClient(chaine_Text, port);
+    }
 
-						msg = in.readLine();
-						
-						// Tant que le client est connecté
-						
-						while (msg!=null) {
-							System.out.println(msg);
-							Fenetre.addMessage(msg);
-							msg = in.readLine();
-						}
-						
-						// Sortir de la boucle si le client a déconecté
-						
-						System.out.println("Serveur déconecté");
-						
-						// Fermer le flux et la session socket
-						
-						out.close();
-						clientSocket.close();
+    public static void startClient(ArrayList<String> chaine_Text2, int port) {
+        Socket clientSocket;
+        BufferedReader in;
+        PrintWriter out;
+        String pseudo = "Remy";
 
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				}
-			});
-			recevoir.start();
-		} catch (IOException e) {e.printStackTrace();}
-	}
-	
-	
-	public static String getNextMessage() {
-		if (chaine_Text.size()!=0 ) {
-			return chaine_Text.remove(0);
-		}
-		return "";
-		
-	}
-	public static String encrypt(String plainText, SecretKey secretKey) throws Exception {
+        try {
+            // Initialisation de la connexion
+            clientSocket = new Socket("127.0.0.69", port);
+            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            out = new PrintWriter(clientSocket.getOutputStream(), true);
+
+            Fenetre = new Fenetre_discution(chaine_Text2);
+            Fenetre.addMessage("Connection au serveur", false, false);
+
+            // Instancier le client avec la gestion de la clé
+            Client client = new Client();
+
+            // Thread pour envoyer des messages
+            Thread envoi = new Thread(() -> client.handleSending(out, pseudo, clientSocket));
+
+            // Thread pour recevoir des messages
+            Thread recevoir = new Thread(() -> client.handleReceiving(in, pseudo));
+
+            // Démarrer les threads
+            envoi.start();
+            recevoir.start();
+
+        } catch (IOException e) {
+            System.err.println("Erreur de connexion au serveur : " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gestion de l'envoi des messages (chiffrement inclus)
+     */
+    private void handleSending(PrintWriter out, String pseudo, Socket clientSocket) {
+        String msg;
+
+        try {
+            while (true) {
+                synchronized (this) {
+                    if (secretKey == null) {
+                        // Générer la clé AES et l'envoyer au serveur
+                        secretKey = generateAESKey();
+                        String encodedKey = Base64.getEncoder().encodeToString(secretKey.getEncoded());
+                        out.println(encodedKey + "@code@" + pseudo);
+                        out.flush();
+                    }
+                }
+
+                // Envoyer les messages de la fenêtre de discussion
+                msg = getNextMessage();
+                if (msg.length() > 0) {
+                    System.out.println("Message à envoyer : " + msg);
+                    String encryptedMsg = encrypt(msg, secretKey);
+                    out.println(encryptedMsg);
+                    out.flush();
+
+                    if (msg.equals("bye")) {
+                        out.close();
+                        clientSocket.close();
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Erreur lors de l'envoi : " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gestion de la réception des messages (déchiffrement inclus)
+     */
+    private void handleReceiving(BufferedReader in, String pseudo) {
+        String msg;
+
+        try {
+            while ((msg = in.readLine()) != null) {
+                synchronized (this) {
+                    if (secretKey == null) {
+                       
+                        continue;
+                    }
+                }
+
+                try {
+                    // Déchiffrement du message
+                	System.out.println(msg);
+                    String decryptedMsg = decrypt(msg, secretKey);
+                    System.out.println("Message reçu et déchiffré : " + decryptedMsg);
+                    Fenetre.addMessage(decryptedMsg, false, pseudo.equals(decryptedMsg.split(":")[0]));
+                } catch (Exception e) {
+                    System.err.println("Erreur de déchiffrement : " + e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Erreur lors de la réception des messages : " + e.getMessage());
+        }
+    }
+
+    /**
+     * Obtenir le prochain message depuis la fenêtre de discussion
+     */
+    public static String getNextMessage() {
+        if (!chaine_Text.isEmpty()) {
+            return chaine_Text.remove(0);
+        }
+        return "";
+    }
+
+    /**
+     * Chiffrement des messages
+     */
+    public static String encrypt(String plainText, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey); // Réinitialisation
         byte[] encryptedBytes = cipher.doFinal(plainText.getBytes());
         return Base64.getEncoder().encodeToString(encryptedBytes);
     }
-	
-	  // Décrypter un message
+
     public static String decrypt(String encryptedText, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, secretKey);
+        cipher.init(Cipher.DECRYPT_MODE, secretKey); // Réinitialisation
         byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedText));
         return new String(decryptedBytes);
     }
 
-    // Générer une clé AES aléatoire
-    public static SecretKey generateAESKey() throws Exception {
+    /**
+     * Générer une clé AES aléatoire
+     */
+    public static SecretKey generateAESKey() throws NoSuchAlgorithmException {
         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-        keyGenerator.init(256);
+        keyGenerator.init(256); // Longueur de clé AES
         return keyGenerator.generateKey();
     }
 
-    // Convertir une clé AES à partir d'un tableau de bytes
+    /**
+     * Convertir une clé AES à partir d'un tableau de bytes
+     */
     public static SecretKey getKeyFromBytes(byte[] keyBytes) {
         return new SecretKeySpec(keyBytes, "AES");
     }
