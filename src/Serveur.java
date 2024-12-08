@@ -1,5 +1,10 @@
 import java.io.*;
 import java.net.*;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.*;
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
@@ -9,12 +14,27 @@ public class Serveur {
     private static Map<String, PrintWriter> clients = new HashMap<>();
     private static Map<String, SecretKey> clientKeys = new HashMap<>(); // Associe chaque utilisateur à sa clé
     private static List<String> messageHistory = new ArrayList<>();
+    private static PrivateKey privateKey ;
+    private static PublicKey publicKey ;
+    
+    private SecretKey secretKey;
+    public static void main(String[] args) throws NoSuchAlgorithmException {
+    	 // Générer une paire de clés RSA
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        publicKey = keyPair.getPublic();
+        privateKey = keyPair.getPrivate();
 
-    public static void main(String[] args) {
-        System.out.println("Le serveur est prêt à recevoir des connexions...");
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+        System.out.println("Clé publique générée :\n" + Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+
+        // Créer un serveur
+        
+        
+        try (ServerSocket serverSocket1 = new ServerSocket(PORT)) {
+        	System.out.println("Serveur démarré, en attente de connexion...");
             while (true) {
-                Socket clientSocket = serverSocket.accept();
+                Socket clientSocket = serverSocket1.accept();
                 new ClientHandler(clientSocket).start();
             }
         } catch (IOException e) {
@@ -35,67 +55,87 @@ public class Serveur {
 
         public void run() {
             try {
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                out = new PrintWriter(socket.getOutputStream(), true);
+            	this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            	this.out = new PrintWriter(socket.getOutputStream(), true);
 
-                // Étape 1 : Demander un nom d'utilisateur unique et associer une clé
-                while (true) {
-                    String[] information = in.readLine().split("@code@");
-                    byte[] decodedKey = Base64.getDecoder().decode(information[0]);
-                    secretKey = new SecretKeySpec(decodedKey, "AES");
-                    username = information[1];
+                 // 1. Envoyer la clé publique au client
+                 out.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+                 System.out.println("Clé publique envoyée au client.");
 
-                    if (username == null || username.trim().isEmpty()) continue;
+                 // 2. Recevoir la clé AES chiffrée
+                 String encryptedAESKey = in.readLine();
+                 System.out.println("Clé AES chiffrée reçue : " + encryptedAESKey);
 
-                    synchronized (clients) {
-                        if (!clients.containsKey(username)) {
-                            clients.put(username, out);
-                            clientKeys.put(username, secretKey);
-                            out.println(encrypt("Bienvenue " + username + " !", secretKey));
-                            System.out.println("Utilisateur connecté : " + username);
-                            break;
-                        } else {
-                            out.println(encrypt("Ce nom d'utilisateur est déjà pris. Essayez un autre.", secretKey));
-                        }
-                    }
-                }
+              // Réception et déchiffrement de la clé AES
+                 Cipher cipher = Cipher.getInstance("RSA");
+                 cipher.init(Cipher.DECRYPT_MODE, privateKey);
+                 byte[] decodedKey = cipher.doFinal(Base64.getDecoder().decode(encryptedAESKey));
+                 secretKey = new SecretKeySpec(decodedKey, "AES");
+                 System.out.println("Clé AES déchiffrée : " + Base64.getEncoder().encodeToString(secretKey.getEncoded()));
 
-                // Étape 2 : Lire les messages et les diffuser
-                String message;
-                while ((message = in.readLine()) != null) {
-                    message = decrypt(message, secretKey);
+                 // Réception et déchiffrement du pseudo
+                 String encryptedPseudo = in.readLine(); // Lecture du pseudo chiffré
+                 System.out.println("Pseudo chiffré reçu : " + encryptedPseudo);
 
-                    if (message.equals("HISTORIQUE")) {
-                        sendHistory();
-                    } else if (message.contains(":")) { // Message privé
-                        String[] parts = message.split(":", 2);
-                        if (parts.length == 2) {
-                            String targetUser = parts[0].trim();
-                            String privateMessage = parts[1].trim();
+                 if (encryptedPseudo != null && !encryptedPseudo.isEmpty()) {
+                     username = decrypt(encryptedPseudo, secretKey); // Déchiffrement du pseudo
+                     System.out.println("Pseudo déchiffré : " + username);
 
-                            synchronized (clients) {
-                                PrintWriter targetWriter = clients.get(targetUser);
-                                if (targetWriter != null) {
-                                    SecretKey targetKey = clientKeys.get(targetUser);
-                                    targetWriter.println(encrypt(username + " (privé) : " + privateMessage, targetKey));
-                                } else {
-                                    out.println(encrypt("Utilisateur " + targetUser + " introuvable.", secretKey));
-                                }
-                            }
-                        } else {
-                            out.println(encrypt("Format de message invalide. Utilisez : DESTINATAIRE:MESSAGE", secretKey));
-                        }
-                    } else { // Message diffusé à tous les utilisateurs
-                        broadcastMessage(username + " : " + message);
-                    }
-                }
-            } catch (IOException e) {
-                System.out.println("Connexion perdue avec " + username);
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                cleanup();
-            }
+                     // Ajouter un compteur pour gérer les doublons
+                     int compteur = 0;
+                     while (clients.containsKey(username + compteur)) {
+                         compteur++;
+                     }
+                     username = username + compteur;
+
+                     // Stocker les informations client
+                     clients.put(username, out);
+                     clientKeys.put(username, secretKey);
+                     System.out.println("Utilisateur enregistré : " + username);
+                 } else {
+                     System.err.println("Erreur : Pseudo non reçu ou vide.");
+                 }
+                	 
+                 	
+                            
+           
+               
+                 // Étape 2 : Lire les messages et les diffuser
+                 String message;
+                 while ((message = in.readLine()) != null) {
+                     message = decrypt(message, secretKey);
+
+                     if (message.equals("HISTORIQUE")) {
+                         sendHistory();
+                     } else if (message.contains(":")) { // Message privé
+                         String[] parts = message.split(":", 2);
+                         if (parts.length == 2) {
+                             String targetUser = parts[0].trim();
+                             String privateMessage = parts[1].trim();
+
+                             synchronized (clients) {
+                                 PrintWriter targetWriter = clients.get(targetUser);
+                                 if (targetWriter != null) {
+                                     SecretKey targetKey = clientKeys.get(targetUser);
+                                     targetWriter.println(encrypt(username + " (privé) : " + privateMessage, targetKey));
+                                 } else {
+                                     out.println(encrypt("Utilisateur " + targetUser + " introuvable.", secretKey));
+                                 }
+                             }
+                         } else {
+                             out.println(encrypt("Format de message invalide. Utilisez : DESTINATAIRE:MESSAGE", secretKey));
+                         }
+                     } else { // Message diffusé à tous les utilisateurs
+                         broadcastMessage(username + " : " + message);
+                     }
+                 }
+             } catch (IOException e) {
+                 System.out.println("Connexion perdue avec " + username);
+             } catch (Exception e) {
+                 e.printStackTrace();
+             } finally {
+                 cleanup();
+             }
         }
 
         // Méthode pour diffuser un message à tous les clients
