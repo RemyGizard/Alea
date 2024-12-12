@@ -1,8 +1,8 @@
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+import javax.swing.JOptionPane;
 import java.io.*;
 import java.net.Socket;
-import java.security.Key;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -10,84 +10,146 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Scanner;
 
+/**
+ * Classe principale pour le client de l'application de chat.
+ * Gère la connexion au serveur, le chiffrement/déchiffrement des messages et les interactions utilisateur.
+ */
 public class Client {
-	private static SecretKey secretKey = null;
-    private static PublicKey serverPublicKey = null;
-    public static Fenetre_discution Fenetre;
-    public static ArrayList<String> chaine_Text = new ArrayList<>();
-    private static final int port = 3346;
-    private boolean envoie_valide = false;
 
+    // Clé secrète AES pour chiffrer les messages
+    private static SecretKey secretKey = null;
+
+    // Clé publique RSA du serveur pour échanger la clé AES
+    private static PublicKey serverPublicKey = null;
+
+    // Fenêtre graphique pour la discussion
+    public static Fenetre_discution Fenetre;
+
+    // Historique des messages partagés
+    public static ArrayList<String> chaine_Text = new ArrayList<>();
+
+    // Port de connexion au serveur
+    private static int port = 3346;
+
+    // Pseudo du client
+    private static String pseudo;
+
+    // Socket pour communiquer avec le serveur
+    private static Socket clientSocket;
+
+    /**
+     * Point d'entrée principal de l'application client.
+     * 
+     * @param args Arguments passés au programme (non utilisés ici).
+     * @throws Exception En cas d'erreur lors de l'exécution du client.
+     */
     public static void main(String[] args) throws Exception {
-        startClient(chaine_Text, port);
+        startClient(chaine_Text);
     }
 
-    public static void startClient(ArrayList<String> chaine_Text2, int port) throws Exception {
-        Socket clientSocket;
+    /**
+     * Initialise et démarre le client.
+     * 
+     * @param chaine_Text2 Liste partagée des messages entre le client et l'interface graphique.
+     * @throws Exception En cas d'erreur lors de l'initialisation.
+     */
+    public static void startClient(ArrayList<String> chaine_Text2) throws Exception {
+
         BufferedReader in;
         PrintWriter out;
-        String pseudo = "Reyan";
 
         try {
-            // Initialisation de la connexion
-        	 Socket clientSocket1 = new Socket("127.0.0.1", port);
-             System.out.println("Connecté au serveur.");
+            boolean connected = false;
 
-             in = new BufferedReader(new InputStreamReader(clientSocket1.getInputStream()));
-             out = new PrintWriter(clientSocket1.getOutputStream(), true);
+            // Boucle pour tenter la connexion au serveur jusqu'à réussite
+            while (!connected) {
+                try {
+                    System.out.println("Tentative de connexion sur le port : " + port);
+                    clientSocket = new Socket("127.0.0.1", port);
+                    connected = true; // Si la connexion réussit
+                    System.out.println("Connecté au serveur sur le port : " + port);
+                } catch (IOException e) {
+                    // En cas d'échec, demander un nouveau port à l'utilisateur
+                    String portInput = JOptionPane.showInputDialog(
+                            null,
+                            "Connexion échouée sur le port " + port + ". Entrez un nouveau numéro de port :",
+                            "Configuration",
+                            JOptionPane.PLAIN_MESSAGE
+                    );
 
-             // 1. Recevoir la clé publique RSA du serveur
-             String publicKeyBase64 = in.readLine();
-             byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyBase64);
-             KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-             serverPublicKey = keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyBytes));
-             System.out.println("Clé publique du serveur reçue.");
+                    if (portInput == null || portInput.isEmpty()) {
+                        System.out.println("Aucun port saisi. Fermeture.");
+                        System.exit(0);
+                    }
 
-             // 2. Générer une clé AES
-             secretKey = generateAESKey();
-             System.out.println("Clé AES générée : " + Base64.getEncoder().encodeToString(secretKey.getEncoded()));
+                    try {
+                        port = Integer.parseInt(portInput);
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(
+                                null,
+                                "Veuillez entrer un numéro de port valide (entier).",
+                                "Erreur",
+                                JOptionPane.ERROR_MESSAGE
+                        );
+                    }
+                }
+            }
 
-          // 3. Chiffrer la clé AES avec la clé publique RSA
-             Cipher cipher = Cipher.getInstance("RSA");
-             cipher.init(Cipher.ENCRYPT_MODE, serverPublicKey);
-             byte[] encryptedAESKey = cipher.doFinal(secretKey.getEncoded());
-             String encryptedAESKeyBase64 = Base64.getEncoder().encodeToString(encryptedAESKey);
+            // Initialisation des flux de communication
+            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            out = new PrintWriter(clientSocket.getOutputStream(), true);
 
-             // 4. Envoyer la clé AES chiffrée au serveur
-             out.println(encryptedAESKeyBase64);
-             out.flush(); // Important pour s'assurer que le message est envoyé immédiatement
-             System.out.println("Clé AES chiffrée envoyée au serveur.");
+            // 1. Recevoir la clé publique RSA du serveur
+            String publicKeyBase64 = in.readLine();
+            byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyBase64);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            serverPublicKey = keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+            System.out.println("Clé publique du serveur reçue.");
 
-             // 5. Envoyer le pseudo au serveur
-             String encryptedPseudo = encrypt(pseudo, secretKey);
-             out.println(encryptedPseudo);
-             out.flush(); 
-             System.out.println("Pseudo chiffré envoyé au serveur : " + encryptedPseudo);
-             
-            Fenetre = new Fenetre_discution(chaine_Text2);
-            Fenetre.addMessage("Connection au serveur", false, false);
-            
-            
-            
-            // Instancier le client avec la gestion de la clé
+            // 2. Générer une clé AES
+            secretKey = generateAESKey();
+            System.out.println("Clé AES générée : " + Base64.getEncoder().encodeToString(secretKey.getEncoded()));
+
+            // 3. Chiffrer la clé AES avec la clé publique RSA
+            Cipher cipher = Cipher.getInstance("RSA");
+            cipher.init(Cipher.ENCRYPT_MODE, serverPublicKey);
+            byte[] encryptedAESKey = cipher.doFinal(secretKey.getEncoded());
+            String encryptedAESKeyBase64 = Base64.getEncoder().encodeToString(encryptedAESKey);
+
+            // 4. Envoyer la clé AES chiffrée au serveur
+            out.println(encryptedAESKeyBase64);
+            out.flush();
+            System.out.println("Clé AES chiffrée envoyée au serveur.");
+
+            // 5. Envoyer le pseudo au serveur
+            Fenetre = new Fenetre_discution(chaine_Text);
+            while (Fenetre.pseudo_client.isEmpty()) {
+                // Attendre que l'utilisateur entre son pseudo
+            }
+            pseudo = Fenetre.pseudo_client;
+            String encryptedPseudo = encrypt(Fenetre.pseudo_client, secretKey);
+            out.println(encryptedPseudo);
+            out.flush();
+
+            // Recevoir le pseudo final (si modifié par le serveur)
+            pseudo = decrypt(in.readLine(), secretKey);
+            Fenetre.pseudo_client = pseudo;
+            System.out.println("Pseudo confirmé : " + pseudo);
+
+            // Initialisation des threads pour la gestion des messages
             Client client = new Client();
 
-            // Thread pour envoyer des messages
-            Thread envoi = new Thread(() -> client.handleSending(out, pseudo, clientSocket1));
-
-            // Thread pour recevoir des messages
+            Thread envoi = new Thread(() -> client.handleSending(out, pseudo, clientSocket));
             Thread recevoir = new Thread(() -> {
-				try {
-					client.handleReceiving(in, pseudo);
-				} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			});
+                try {
+                    client.handleReceiving(in, pseudo);
+                } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+                    e.printStackTrace();
+                }
+            });
 
-            // Démarrer les threads
+            // Démarrage des threads
             envoi.start();
             recevoir.start();
 
@@ -97,19 +159,19 @@ public class Client {
     }
 
     /**
-     * Gestion de l'envoi des messages (chiffrement inclus)
+     * Gère l'envoi des messages avec chiffrement AES.
+     * 
+     * @param out Flux de sortie pour envoyer les messages au serveur.
+     * @param pseudo Pseudo du client.
+     * @param clientSocket Socket de connexion.
      */
     private void handleSending(PrintWriter out, String pseudo, Socket clientSocket) {
         String msg;
 
         try {
             while (true) {
-            	
-               
-
-                // Envoyer les messages de la fenêtre de discussion
                 msg = getNextMessage();
-                if (msg.length() > 0) {
+                if (!msg.isEmpty()) {
                     System.out.println("Message à envoyer : " + msg);
                     String encryptedMsg = encrypt(msg, secretKey);
                     out.println(encryptedMsg);
@@ -128,23 +190,22 @@ public class Client {
     }
 
     /**
-     * Gestion de la réception des messages (déchiffrement inclus)
-     * @throws NoSuchAlgorithmException 
-     * @throws InvalidKeySpecException 
+     * Gère la réception des messages avec déchiffrement AES.
+     * 
+     * @param in Flux d'entrée pour recevoir les messages du serveur.
+     * @param pseudo Pseudo du client.
+     * @throws NoSuchAlgorithmException En cas d'erreur dans l'algorithme de génération de clé.
+     * @throws InvalidKeySpecException En cas d'erreur de spécification de la clé.
      */
     private void handleReceiving(BufferedReader in, String pseudo) throws NoSuchAlgorithmException, InvalidKeySpecException {
         String msg;
 
         try {
             while ((msg = in.readLine()) != null) {
-            	
-                
                 try {
-                    // Déchiffrement du message
-                	
                     String decryptedMsg = decrypt(msg, secretKey);
                     System.out.println("Message reçu et déchiffré : " + decryptedMsg);
-                    Fenetre.addMessage(decryptedMsg, false, pseudo.equals(decryptedMsg.split(":")[0]));
+                    Fenetre.addMessage(decryptedMsg);
                 } catch (Exception e) {
                     System.err.println("Erreur de déchiffrement : " + e.getMessage());
                 }
@@ -155,7 +216,9 @@ public class Client {
     }
 
     /**
-     * Obtenir le prochain message depuis la fenêtre de discussion
+     * Obtient le prochain message depuis la liste partagée.
+     * 
+     * @return Le prochain message, ou une chaîne vide si aucun message n'est présent.
      */
     public static synchronized String getNextMessage() {
         if (!chaine_Text.isEmpty()) {
@@ -165,33 +228,52 @@ public class Client {
     }
 
     /**
-     * Chiffrement des messages
+     * Chiffre un message en utilisant la clé secrète AES.
+     * 
+     * @param plainText Le texte en clair à chiffrer.
+     * @param secretKey La clé secrète AES.
+     * @return Le texte chiffré encodé en Base64.
+     * @throws Exception En cas d'erreur de chiffrement.
      */
     public static String encrypt(String plainText, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey); // Réinitialisation
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
         byte[] encryptedBytes = cipher.doFinal(plainText.getBytes());
         return Base64.getEncoder().encodeToString(encryptedBytes);
     }
 
+    /**
+     * Déchiffre un message chiffré en utilisant la clé secrète AES.
+     * 
+     * @param encryptedText Le texte chiffré encodé en Base64.
+     * @param secretKey La clé secrète AES.
+     * @return Le texte déchiffré en clair.
+     * @throws Exception En cas d'erreur de déchiffrement.
+     */
     public static String decrypt(String encryptedText, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, secretKey); // Réinitialisation
+        cipher.init(Cipher.DECRYPT_MODE, secretKey);
         byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedText));
         return new String(decryptedBytes);
     }
 
     /**
-     * Générer une clé AES aléatoire
+     * Génère une nouvelle clé secrète AES.
+     * 
+     * @return Une instance de {@link SecretKey} générée.
+     * @throws NoSuchAlgorithmException En cas d'erreur de génération de clé.
      */
     public static SecretKey generateAESKey() throws NoSuchAlgorithmException {
         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-        keyGenerator.init(256); // Longueur de clé AES
+        keyGenerator.init(256);
         return keyGenerator.generateKey();
     }
 
     /**
-     * Convertir une clé AES à partir d'un tableau de bytes
+     * Convertit un tableau de bytes en clé secrète AES.
+     * 
+     * @param keyBytes Le tableau de bytes représentant la clé.
+     * @return Une instance de {@link SecretKey} créée à partir des bytes donnés.
      */
     public static SecretKey getKeyFromBytes(byte[] keyBytes) {
         return new SecretKeySpec(keyBytes, "AES");

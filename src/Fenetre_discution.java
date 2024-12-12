@@ -4,254 +4,156 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.lang.System.Logger;
-import java.lang.System.Logger.Level;
 import java.util.ArrayList;
-
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import java.util.logging.*;
 
+/**
+ * Classe principale pour l'interface graphique du client de discussion.
+ * Permet d'envoyer et de recevoir des messages dans un environnement de chat.
+ */
 public class Fenetre_discution extends JFrame {
 
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 1L;
-	private JPanel messagePanel; // Le panneau pour afficher les messages
-	private JTextField messageField; // Champ pour entrer les messages
-	private JButton sendButton; // Bouton pour envoyer le message
-	private JScrollPane scrollPane; // La vue de défilement
-	private boolean canLoadMoreMessages = true;
-	private ArrayList<String> loadedMessages; // contient les informations des anciens
-	private static String filePath = "fichier/memoire"; // chemin du fichier
-	private int compteur_memoire = 0;
-	public String idClient="200023";
-	public static ArrayList<String> chaine_Text;
+    private static final long serialVersionUID = 1L;
 
-	public Fenetre_discution(ArrayList<String> chaine_Text2) {
-		chaine_Text=chaine_Text2;
-		loadMessagesFromFile();
-		compteur_memoire = loadedMessages.size() - 1;
+    // Panneau pour afficher les messages
+    private JPanel messagePanel;
 
-		setTitle("Chat App");
-		setSize(400, 400);
-		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		setLocationRelativeTo(null); // Centrer la fenêtre sur l'écran
+    // Champ pour saisir un message
+    private JTextField messageField;
 
-		// Panneau principal (panneau de message)
-		messagePanel = new JPanel();
-		messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS)); // Alignement vertical des messages
-		scrollPane = new JScrollPane(messagePanel);
-		add(scrollPane, BorderLayout.CENTER);
+    // Bouton pour envoyer un message
+    private JButton sendButton;
 
-		// Panneau pour saisir un message
-		JPanel inputPanel = new JPanel();
-		inputPanel.setLayout(new BorderLayout());
+    // Vue de défilement pour le panneau des messages
+    private JScrollPane scrollPane;
 
-		messageField = new JTextField();
-		sendButton = new JButton("Envoyer");
+    // Historique des messages partagé
+    public static ArrayList<String> chaine_Text;
 
-		inputPanel.add(messageField, BorderLayout.CENTER);
-		inputPanel.add(sendButton, BorderLayout.EAST);
+    // Pseudo du client actuel
+    public String pseudo_client = "";
 
-		add(inputPanel, BorderLayout.SOUTH);
+    /**
+     * Constructeur de la classe Fenetre_discution.
+     * Initialise l'interface utilisateur et demande un pseudo au client.
+     * 
+     * @param chaine_Text2 Liste des messages partagés (synchronisée avec le serveur).
+     */
+    public Fenetre_discution(ArrayList<String> chaine_Text2) {
+        chaine_Text = chaine_Text2;
 
-		// Action du bouton "Envoyer"
-		sendButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				sendMessage();
-			}
-		});
+        // Demande du pseudo au client tant qu'il n'est pas saisi
+        while (pseudo_client.isEmpty()) {
+            pseudo_client = JOptionPane.showInputDialog(null, "Entrez votre pseudo :", "Bienvenue", JOptionPane.PLAIN_MESSAGE);
+        }
 
-		// Action lorsque la touche "Entrée" est pressée
-		messageField.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				sendMessage();
-			}
-		});
+        // Configuration de la fenêtre principale
+        setTitle("Chat App");
+        setSize(400, 400);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null); // Centrer la fenêtre sur l'écran
 
-		scrollPane.addMouseWheelListener(new MouseWheelListener() {
+        // Panneau pour afficher les messages
+        messagePanel = new JPanel();
+        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS)); // Alignement vertical des messages
+        scrollPane = new JScrollPane(messagePanel);
+        add(scrollPane, BorderLayout.CENTER);
 
-			@Override
-			public void mouseWheelMoved(MouseWheelEvent e) {
-				// TODO Auto-generated method stub
-				if (e.getWheelRotation() < 0 && canLoadMoreMessages) {
-					addOldMessage(); // Charger plus de messages
-				}
-			}
-		});
+        // Panneau pour saisir un message
+        JPanel inputPanel = new JPanel();
+        inputPanel.setLayout(new BorderLayout());
 
-		// Détecter si la souris est sur messagePanel
-		messagePanel.addMouseListener(new MouseAdapter() {
-			@Override
-			public void mouseEntered(MouseEvent e) {
-				// Activer la possibilité de charger plus de messages uniquement si la souris
-				// entre dans messagePanel
-				if (!canLoadMoreMessages) {
-					canLoadMoreMessages = true; // Réactiver la possibilité de charger des messages
-				}
-			}
+        messageField = new JTextField();
+        sendButton = new JButton("Envoyer");
 
-			@Override
-			public void mouseExited(MouseEvent e) {
-				// On pourrait désactiver la possibilité de charger des messages lorsque la
-				// souris quitte messagePanel
-				canLoadMoreMessages = false;
-			}
-		});
+        inputPanel.add(messageField, BorderLayout.CENTER);
+        inputPanel.add(sendButton, BorderLayout.EAST);
 
-		setVisible(true);
-	}
+        add(inputPanel, BorderLayout.SOUTH);
 
-	// Méthode pour envoyer un message
-	private void sendMessage() {
-		String message = messageField.getText();
-		if (!message.isEmpty()) {
-			addMessage(message,true,true); // Ajouter le message
-			Ecriture_append(message);
-			messageField.setText(""); // Réinitialiser le champ de texte
-			messagePanel.revalidate();
-			messagePanel.repaint();
-			SwingUtilities.invokeLater(new Runnable() {
-				@Override
-				public void run() {
-					scrollPane.getVerticalScrollBar().setValue(scrollPane.getVerticalScrollBar().getMaximum());
+        // Actions pour le bouton "Envoyer"
+        sendButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                sendMessage();
+            }
+        });
 
-				}
-			});
+        // Action pour la touche "Entrée" dans le champ de saisie
+        messageField.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                sendMessage();
+            }
+        });
 
-		}
-	}
+        setVisible(true);
+    }
 
-	// Méthode pour ajouter un message au bas du panneau
-	public  void addMessage(String message,boolean envoie,boolean color) {
-		if( envoie ==true) {
-			chaine_Text.add(message);
-		}
-		else {
-		JLabel messageLabel = new JLabel(message);
-		messageLabel.setOpaque(true); // Nécessaire pour changer la couleur de fond
-		if (color) {
-			messageLabel.setBackground(new Color(120, 120,140));
-		}
-		else {
-			messageLabel.setBackground(new Color(80, 80,90));
-		}
-		messageLabel.setForeground(Color.WHITE); // Changer la couleur du texte
+    /**
+     * Méthode pour envoyer un message.
+     * Ajoute le message à l'historique partagé si le champ de texte n'est pas vide.
+     */
+    private void sendMessage() {
+        String message = messageField.getText();
+        if (!message.isEmpty()) {
+            chaine_Text.add(message); // Ajout du message à l'historique partagé
+            messageField.setText(""); // Efface le champ de saisie
+        }
+    }
 
-		// Faire en sorte que le JLabel occupe toute la largeur du panneau de messages
-		messageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		messageLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, messageLabel.getPreferredSize().height));
+    /**
+     * Méthode pour afficher un message dans l'interface graphique.
+     * Différencie les messages en fonction de l'émetteur et du type (privé ou public).
+     * 
+     * @param message Le message à ajouter à l'interface.
+     */
+    public void addMessage(String message) {
+        JLabel messageLabel = new JLabel(message);
+        messageLabel.setOpaque(true); // Nécessaire pour changer la couleur de fond
 
-		// Ajouter le JLabel au panneau de messages
-		messagePanel.add(messageLabel);
+        // Analyse du message pour déterminer le type (privé, public, système)
+        String[] tete = message.split(" :");
+        if (tete.length == 1 || message.equals("Commande des messages privé -> pseudo : message")) {
+            messageLabel.setBackground(new Color(120, 200, 140)); // Messages système ou aide
+        } else {
+            if (tete[0].contains("privé")) {
+                messageLabel.setBackground(new Color(220, 120, 140)); // Messages privés
+            } else {
+                if (tete[0].equals(pseudo_client)) {
+                    messageLabel.setBackground(new Color(140, 140, 160)); // Messages envoyés par ce client
+                } else {
+                    messageLabel.setBackground(new Color(80, 80, 90)); // Messages des autres utilisateurs
+                }
+            }
+        }
 
-		// Rafraîchir l'affichage
-		messagePanel.revalidate();
-		messagePanel.repaint();
-		}
-		
-	}
+        messageLabel.setForeground(Color.WHITE); // Couleur du texte
 
-	// Méthode pour ajouter un message "Bonjour" en haut
-	public  void addOldMessage() {
-		// Créer un JLabel avec le message
-		if (compteur_memoire >= 0) {
-			JLabel messageLabel = new JLabel(loadedMessages.get(compteur_memoire));
-			compteur_memoire--;
-			messageLabel.setOpaque(true); // Nécessaire pour changer la couleur de fond
-			messageLabel.setBackground(generateRandomColor());
-			messageLabel.setForeground(Color.WHITE); // Changer la couleur du texte
+        // Configuration de la largeur maximale pour s'adapter au panneau
+        messageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messageLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, messageLabel.getPreferredSize().height));
 
-			// Faire en sorte que le JLabel occupe toute la largeur du panneau de messages
-			messageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-			messageLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, messageLabel.getPreferredSize().height));
+        // Ajout du message au panneau de messages
+        messagePanel.add(messageLabel);
 
-			// Ajouter le JLabel en haut du panneau de messages
-			messagePanel.add(messageLabel, 0); // Le "0" permet de l'ajouter en haut de la liste
+        // Rafraîchissement de l'affichage
+        messagePanel.revalidate();
+        messagePanel.repaint();
 
-			// Rafraîchir l'affichage pour montrer le nouveau message en haut
-			messagePanel.revalidate();
-			messagePanel.repaint();
-
-			// Déplacer le défilement vers le haut pour montrer le nouveau message
-			JScrollBar verticalScrollBar = scrollPane.getVerticalScrollBar();
-			verticalScrollBar.setValue(verticalScrollBar.getMinimum());
-		}
-	}
-
-	/**
-	 * Ouvrir le fichier et ajouter une ligne de texte
-	 * 
-	 * @param filename
-	 * @param text
-	 */
-	public static void Ecriture_append(String text) {
-		BufferedWriter bufWriter = null;
-		FileWriter fileWriter = null;
-		try {
-			
-			fileWriter = new FileWriter(filePath, true);
-			bufWriter = new BufferedWriter(fileWriter);
-			
-			// Insérer un saut de ligne
-			bufWriter.newLine();
-			bufWriter.write(text);
-			bufWriter.close();
-		} catch (IOException ex) {
-			 System.err.println("Erreur lors de l'écriture dans le fichier : " + ex.getMessage());
-			    ex.printStackTrace();
-		} finally {
-			try {
-				bufWriter.close();
-				fileWriter.close();
-			} catch (IOException ex) {
-				 System.err.println("Erreur lors de l'écriture dans le fichier : " + ex.getMessage());
-				    ex.printStackTrace();
-			}
-		}
-	}
-
-	// Méthode pour générer une couleur de fond aléatoire
-	private Color generateRandomColor() {
-		int r = (int) (120);
-		int g = (int) (Math.random() * 256);
-		int b = (int) (Math.random() * 256);
-		return new Color(r, g, b);
-	}
-
-	
-
-	private void loadMessagesFromFile() {
-		loadedMessages = new ArrayList<>();
-		try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-			String line;
-			while ((line = reader.readLine()) != null) {
-				loadedMessages.add(line); // Ajouter chaque ligne (message) dans la liste
-				System.out.println(line);
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-
-		}
-	}
+        // Défilement automatique vers le bas pour afficher le dernier message
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar verticalBar = scrollPane.getVerticalScrollBar();
+            verticalBar.setValue(verticalBar.getMaximum());
+        });
+    }
 }
